@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"time"
+    "strconv"
 
     pb "github.com/jeraj/razpravljalnica/gen"
     "google.golang.org/grpc"
@@ -23,7 +24,8 @@ func main() {
 
     client := pb.NewMessageBoardClient(conn)
 
-    //var currentTopicID int64 = 0 //izbrana še ni bila nobena tema
+    var currentTopicID int64 = 0 //izbrana še ni bila nobena tema
+    topics := make(map[int64]string)
 
     //preberi uporabnisko ime od terminala
     reader := bufio.NewReader(os.Stdin)
@@ -80,6 +82,7 @@ func main() {
             fmt.Println("Topics:")
             for _, t := range resp.Topics { //izpis tem
                 fmt.Printf(" - [%d] %s\n", t.Id, t.Name)
+                topics[t.Id] = t.Name
             }
         }
 
@@ -101,6 +104,41 @@ func main() {
             }
 
             fmt.Printf("Topic created: [%d] %s\n", topic.Id, topic.Name)
+        }
+
+        izbira_teme := strings.Split(line, " ")
+        if izbira_teme[0] == "o"{
+            topicID, err := strconv.ParseInt(izbira_teme[1], 10, 64)
+            if err != nil {
+                fmt.Println("Invalid topic id")
+                continue
+            }
+
+            ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+            defer cancel()
+
+            resp, err := client.GetMessages(ctx, &pb.GetMessagesRequest{
+                TopicId:        topicID,
+                FromMessageId:  0,
+                Limit:          50,
+            })
+            if err != nil {
+                log.Println("GetMessages failed:", err)
+                continue
+            }
+
+            currentTopicID = topicID
+            tema := topics[topicID]
+            fmt.Printf("\n--- Topic %d --- (%s)\n", currentTopicID, tema)
+
+            if len(resp.Messages) == 0 {
+                fmt.Println("No messages in this topic.")
+                continue
+            }
+
+            for _, m := range resp.Messages {
+                fmt.Printf("[%d] user=%d: %s\n", m.Id, m.UserId, m.Text)
+            }
         }
     }
 }

@@ -99,3 +99,26 @@ func (s *MessageBoardServer) CreateTopic(
 
 	return topic, nil
 }
+
+func (s *MessageBoardServer) GetMessages(
+	ctx context.Context,
+	req *pb.GetMessagesRequest,
+) (*pb.GetMessagesResponse, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	resp := &pb.GetMessagesResponse{}
+
+	for _, m := range s.messages {
+		if m.TopicId == req.TopicId && m.Id > req.FromMessageId {
+			resp.Messages = append(resp.Messages, m)
+
+			if req.Limit > 0 && int32(len(resp.Messages)) >= req.Limit {
+				break
+			}
+		}
+	}
+
+	return resp, nil
+}
