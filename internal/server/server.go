@@ -8,6 +8,8 @@ import (
 	pb "github.com/jeraj/razpravljalnica/gen"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/codes"
 )
 
 type MessageBoardServer struct {
@@ -23,6 +25,9 @@ type MessageBoardServer struct {
 
 	messages      map[int64]*pb.Message
 	nextMessageID int64
+	
+	likes map[int64]map[int64]bool
+
 }
 
 //konstruktor za strežnik
@@ -31,6 +36,7 @@ func NewMessageBoardServer() *MessageBoardServer {
 		users:  make(map[int64]*pb.User),
 		topics: make(map[int64]*pb.Topic),
 		messages: make(map[int64]*pb.Message),
+		likes:    make(map[int64]map[int64]bool),
 	}
 
 	//naredim default temo
@@ -163,3 +169,75 @@ func (s *MessageBoardServer) PostMessage(
 
 	return msg, nil
 }
+
+func (s *MessageBoardServer) LikeMessage(
+	ctx context.Context,
+	req *pb.LikeMessageRequest,
+) (*pb.Message, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msg, ok := s.messages[req.MessageId]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "message not found")
+	}
+
+	if msg.TopicId != req.TopicId {
+		return nil, status.Errorf(codes.InvalidArgument, "message not in this topic")
+	}
+
+	// inicializiraj mapo, če prvič
+	if _, ok := s.likes[msg.Id]; !ok {
+		s.likes[msg.Id] = make(map[int64]bool)
+	}
+
+	// preveri, ali je uporabnik že lajkal
+	if s.likes[msg.Id][req.UserId] {
+		return nil, status.Errorf(codes.AlreadyExists, "message already liked by this user")
+	}
+
+	// zabeleži like
+	s.likes[msg.Id][req.UserId] = true
+	msg.Likes++
+
+	log.Printf("Message %d liked by user %d (likes=%d)",
+		msg.Id, req.UserId, msg.Likes)
+
+	return msg, nil
+}
+
+
+func (s *MessageBoardServer) DeleteMessage(
+	ctx context.Context,
+	req *pb.DeleteMessageRequest,
+) (*emptypb.Empty, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msg, ok := s.messages[req.MessageId]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "message not found")
+	}
+
+	if msg.TopicId != req.TopicId {
+		return nil, status.Errorf(codes.InvalidArgument, "message not in this topic")
+	}
+
+	if msg.UserId != req.UserId {
+		return nil, status.Errorf(codes.PermissionDenied, "cannot delete чуж message")
+	}
+
+	// izbriši sporočilo
+	delete(s.messages, req.MessageId)
+
+	// izbriši vse like-e za to sporočilo
+	delete(s.likes, req.MessageId)
+
+	log.Printf("Message %d deleted by user %d", req.MessageId, req.UserId)
+
+	return &emptypb.Empty{}, nil
+}
+
+
