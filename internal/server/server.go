@@ -116,18 +116,22 @@ func (s *MessageBoardServer) GetMessages(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	//pripravimo, da shranimo sporočila
 	resp := &pb.GetMessagesResponse{}
 
+	//gremo skozi shranjena sporocila na serverju
 	for _, m := range s.messages {
+		//pogleda ali sporocilo pripada temi in ce je spocilo novejse od zadnjega, pogleda katerih sporocil client se nima
 		if m.TopicId == req.TopicId && m.Id > req.FromMessageId {
+			//dodamo v response
 			resp.Messages = append(resp.Messages, m)
-
+			//ce smo presegli limit, prekinemo
 			if req.Limit > 0 && int32(len(resp.Messages)) >= req.Limit {
 				break
 			}
 		}
 	}
-
+	//vrne seznam sporocil
 	return resp, nil
 }
 
@@ -197,8 +201,8 @@ func (s *MessageBoardServer) LikeMessage(
 		return nil, status.Errorf(codes.AlreadyExists, "message already liked by this user")
 	}
 
-	// zabeleži like
-	s.likes[msg.Id][req.UserId] = true
+	//zabeleži like
+	s.likes[msg.Id][req.UserId] = true //shranjujejo da vemo kdo je lajkal, da se potem s tem ne
 	msg.Likes++
 
 	log.Printf("Message %d liked by user %d (likes=%d)",
@@ -226,18 +230,22 @@ func (s *MessageBoardServer) DeleteMessage(
 	}
 
 	if msg.UserId != req.UserId {
-		return nil, status.Errorf(codes.PermissionDenied, "cannot delete чуж message")
+		return nil, status.Errorf(codes.PermissionDenied, "cannot delete message")
 	}
 
 	// izbriši sporočilo
 	delete(s.messages, req.MessageId)
 
-	// izbriši vse like-e za to sporočilo
+	// izbriši vse like za to sporočilo
 	delete(s.likes, req.MessageId)
 
 	log.Printf("Message %d deleted by user %d", req.MessageId, req.UserId)
 
 	return &emptypb.Empty{}, nil
+}
+
+func (s *MessageBoardServer) Shutdown() { //dodana funkcija, ker sem skos mogla ubijat procese fizicno na racunalniku
+	log.Println("Server shutting down")
 }
 
 

@@ -48,6 +48,11 @@ func main() {
     fmt.Println("\nCOMMANDS\n")
     fmt.Println("  v: view other topics")
     fmt.Println("  c : create topic")
+    fmt.Println("  o <id> : open topic with <id>")
+    fmt.Println("  p <text> : post a comment in current theme")
+    fmt.Println("  d <id> : delete a message with <id>")
+    fmt.Println("  l <id> : like a message with <id>")
+
 
 
     for {
@@ -90,7 +95,7 @@ func main() {
 
 
 
-        if line == "c" { // kreiranje topica
+        if line == "c" { //naredimo temo
             fmt.Print("Enter topic name: ")
             topicName, _ := reader.ReadString('\n')
             topicName = strings.TrimSpace(topicName)
@@ -113,7 +118,7 @@ func main() {
         
 
         izbira_teme := strings.Split(line, " ")
-        if izbira_teme[0] == "o"{ // ogled sporočil v temi
+        if izbira_teme[0] == "o"{ //ogled sporočil v temi in izbira teme hkrati
             topicID, err := strconv.ParseInt(izbira_teme[1], 10, 64)
             if err != nil {
                 fmt.Println("Invalid topic id")
@@ -126,15 +131,15 @@ func main() {
             resp, err := client.GetMessages(ctx, &pb.GetMessagesRequest{
                 TopicId:        topicID,
                 FromMessageId:  0,
-                Limit:          50,
+                Limit:          50, //limit sporocil znotraj teme
             })
             if err != nil {
                 log.Println("GetMessages failed:", err)
                 continue
             }
 
-            currentTopicID = topicID
-            tema := topics[topicID]
+            currentTopicID = topicID //nastavimo na trenutno temo
+            tema := topics[topicID] //pogledamo v slovar njeno ime, katera temaje
             fmt.Printf("\n--- Topic %d --- (%s)\n", currentTopicID, tema)
 
             if len(resp.Messages) == 0 {
@@ -143,7 +148,7 @@ func main() {
             }
 
             for _, m := range resp.Messages {
-                fmt.Printf("[%d] user=%d: %s\n", m.Id, m.UserId, m.Text)
+                fmt.Printf("[%d] user=%d: %s (%d likes)\n", m.Id, m.UserId, m.Text, m.Likes)
             }
         }
         
