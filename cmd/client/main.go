@@ -31,7 +31,7 @@ func main() {
 
     //preberi uporabnisko ime od terminala
     reader := bufio.NewReader(os.Stdin)
-    fmt.Print("Select your username: ")
+    fmt.Print("\nSelect your username: ")
     username, _ := reader.ReadString('\n')
     username = username[:len(username)-1]
 
@@ -44,26 +44,28 @@ func main() {
         log.Fatalf("CreateUser failed: %v", err)
     }
 
-    fmt.Println("User successfully created:", user)
-    fmt.Println("\nCOMMANDS\n")
-    fmt.Println("  v: view other topics")
-    fmt.Println("  c : create topic")
-    fmt.Println("  o <id> : open topic with <id>")
-    fmt.Println("  p <text> : post a comment in current theme")
-    fmt.Println("  d <id> : delete a message with <id>")
-    fmt.Println("  l <id> : like a message with <id>")
+    fmt.Println("\n WELCOME, ", user.Name, "!\n")
+    fmt.Println("\n<---------------------------------------------COMMANDS--------------------------------------------->\n")
+    fmt.Println("    v ... view other topics")
+    fmt.Println("    c ... create topic")
+    fmt.Println("    o <msgId> ... open topic with id <msgId>")
+    fmt.Println("    p <text> ... post a comment in current topic")
+    fmt.Println("    d <msgId> ... delete a message with id <msgIdid>")
+    fmt.Println("    l <msgId> ... like a message with id <msgId>\n")
+    fmt.Println("    e <msgId> ... update a message with id <msgId>\n")
 
+    fmt.Println("\n<-------------------------------------------------------------------------------------------------->\n")
 
 
     for {
-        fmt.Print("> ")
+        fmt.Print(">> ")
         line, err := reader.ReadString('\n')
         if err != nil {
             break
         }
 
         line = strings.TrimSpace(line)
-        fmt.Println("You typed:", line)
+        //fmt.Println("You typed:", line)
 
         if line == "exit" {
             fmt.Println("Bye")
@@ -240,6 +242,48 @@ func main() {
 	        }
 
 	        fmt.Println("Message deleted")
+        }
+        
+        if parts[0] == "e" {
+	        if currentTopicID == 0 {
+		        fmt.Println("No topic selected")
+		        continue
+	        }
+
+	        args := strings.SplitN(line, " ", 3)
+	        if len(args) < 3 {
+		        fmt.Println("Usage: -e <message_id> <new text>")
+		        continue
+	        }
+
+	        msgID, err := strconv.ParseInt(args[1], 10, 64)
+	        if err != nil {
+		        fmt.Println("Invalid message id")
+		        continue
+	        }
+
+	        newText := args[2]
+
+	        ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	        defer cancel()
+
+	        msg, err := client.UpdateMessage(ctx, &pb.UpdateMessageRequest{
+		        TopicId:   currentTopicID,
+		        UserId:    user.Id,
+		        MessageId: msgID,
+		        Text:      newText,
+	        })
+	        if err != nil {
+		        st, ok := status.FromError(err)
+		        if ok && st.Code() == codes.PermissionDenied {
+			        fmt.Println("You can only update your own messages")
+		        } else {
+			        log.Println("UpdateMessage failed:", err)
+		        }
+		        continue
+	        }
+
+	        fmt.Printf("Message updated: [%d] %s\n", msg.Id, msg.Text)
         }
 
 

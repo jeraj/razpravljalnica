@@ -244,6 +244,40 @@ func (s *MessageBoardServer) DeleteMessage(
 	return &emptypb.Empty{}, nil
 }
 
+func (s *MessageBoardServer) UpdateMessage(
+	ctx context.Context,
+	req *pb.UpdateMessageRequest,
+) (*pb.Message, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	msg, ok := s.messages[req.MessageId]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "message not found")
+	}
+
+	if msg.TopicId != req.TopicId {
+		return nil, status.Errorf(codes.InvalidArgument, "message not in this topic")
+	}
+
+	if msg.UserId != req.UserId {
+		return nil, status.Errorf(codes.PermissionDenied, "cannot update other user's message")
+	}
+
+	if req.Text == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "message text cannot be empty")
+	}
+
+	// posodobi besedilo
+	msg.Text = req.Text
+
+	log.Printf("Message %d updated by user %d", msg.Id, msg.UserId)
+
+	return msg, nil
+}
+
+
 func (s *MessageBoardServer) Shutdown() { //dodana funkcija, ker sem skos mogla ubijat procese fizicno na racunalniku
 	log.Println("Server shutting down")
 }
