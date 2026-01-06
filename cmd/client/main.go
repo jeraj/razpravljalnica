@@ -86,7 +86,9 @@ func main() {
             }
         }
 
-        if line == "c" {
+
+
+        if line == "c" { // kreiranje topica
             fmt.Print("Enter topic name: ")
             topicName, _ := reader.ReadString('\n')
             topicName = strings.TrimSpace(topicName)
@@ -105,9 +107,11 @@ func main() {
 
             fmt.Printf("Topic created: [%d] %s\n", topic.Id, topic.Name)
         }
+        
+        
 
         izbira_teme := strings.Split(line, " ")
-        if izbira_teme[0] == "o"{
+        if izbira_teme[0] == "o"{ // ogled sporočil v temi
             topicID, err := strconv.ParseInt(izbira_teme[1], 10, 64)
             if err != nil {
                 fmt.Println("Invalid topic id")
@@ -140,5 +144,29 @@ func main() {
                 fmt.Printf("[%d] user=%d: %s\n", m.Id, m.UserId, m.Text)
             }
         }
+        
+        
+        if strings.HasPrefix(line, "p ") && currentTopicID != 0 {
+            text := strings.TrimPrefix(line, "p ")
+            text = strings.TrimSpace(text)
+
+            ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+            defer cancel()
+
+            msg, err := client.PostMessage(ctx, &pb.PostMessageRequest{
+                TopicId: currentTopicID,
+                UserId:  user.Id,
+                Text:    text,
+            })
+            
+            if err != nil {
+                log.Println("PostMessage failed:", err)
+                continue
+            }
+
+            fmt.Printf("Message posted: [%d] user=%d: %s\n", msg.Id, msg.UserId, msg.Text)
+            continue
+        }
+
     }
 }

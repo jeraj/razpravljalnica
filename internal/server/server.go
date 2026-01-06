@@ -4,8 +4,10 @@ import (
 	"context"
 	"sync"
 	"log"
+	"fmt"
 	pb "github.com/jeraj/razpravljalnica/gen"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type MessageBoardServer struct {
@@ -121,4 +123,43 @@ func (s *MessageBoardServer) GetMessages(
 	}
 
 	return resp, nil
+}
+
+func (s *MessageBoardServer) PostMessage(
+	ctx context.Context,
+	req *pb.PostMessageRequest,
+) (*pb.Message, error) {
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// preveri, če obstaja uporabnik
+	user, ok := s.users[req.UserId]
+	if !ok {
+		return nil, fmt.Errorf("user with id %d does not exist", req.UserId)
+	}
+
+	// preveri, če obstaja tema
+	topic, ok := s.topics[req.TopicId]
+	if !ok {
+		return nil, fmt.Errorf("topic with id %d does not exist", req.TopicId)
+	}
+
+	// ustvari novo sporočilo
+	s.nextMessageID++
+	msg := &pb.Message{
+		Id:        s.nextMessageID,
+		TopicId:   topic.Id,
+		UserId:    user.Id,
+		Text:      req.Text,
+		Likes:     0,
+		CreatedAt: timestamppb.Now(), // trenutni timestamp
+	}
+
+	// shrani sporočilo
+	s.messages[msg.Id] = msg
+
+	log.Printf("New message posted: id=%d topic=%d user=%d text=%s\n", msg.Id, topic.Id, user.Id, msg.Text)
+
+	return msg, nil
 }
