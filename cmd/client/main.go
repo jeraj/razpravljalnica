@@ -17,6 +17,8 @@ import (
     "google.golang.org/grpc/codes"
 )
 
+
+
 func main() {
     conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
     if err != nil {
@@ -28,10 +30,10 @@ func main() {
 
     var currentTopicID int64 = 0 //izbrana še ni bila nobena tema
     topics := make(map[int64]string)
-
+    lastMessageID := make(map[int64]int64)
     //preberi uporabnisko ime od terminala
     reader := bufio.NewReader(os.Stdin)
-    fmt.Print("\nSelect your username: ")
+    fmt.Print("Connected to server!\nSelect your username to register: ")
     username, _ := reader.ReadString('\n')
     username = username[:len(username)-1]
 
@@ -44,14 +46,14 @@ func main() {
         log.Fatalf("CreateUser failed: %v", err)
     }
 
-    fmt.Println("\n WELCOME, ", user.Name, "!\n")
+    fmt.Printf("User registered successfully! Welcome, %s (id=%d)\n\n", user.Name, user.Id)
     fmt.Println("\n<---------------------------------------------COMMANDS--------------------------------------------->\n")
     fmt.Println("    v ... view other topics")
     fmt.Println("    c ... create topic")
     fmt.Println("    o <msgId> ... open topic with id <msgId>")
     fmt.Println("    p <text> ... post a comment in current topic")
     fmt.Println("    d <msgId> ... delete a message with id <msgIdid>")
-    fmt.Println("    l <msgId> ... like a message with id <msgId>\n")
+    fmt.Println("    l <msgId> ... like a message with id <msgId>")
     fmt.Println("    e <msgId> ... update a message with id <msgId>\n")
 
     fmt.Println("\n<-------------------------------------------------------------------------------------------------->\n")
@@ -68,7 +70,7 @@ func main() {
         //fmt.Println("You typed:", line)
 
         if line == "exit" {
-            fmt.Println("Bye")
+            fmt.Println("Goodbye!")
             break
         }
 
@@ -285,9 +287,112 @@ func main() {
 
 	        fmt.Printf("Message updated: [%d] %s\n", msg.Id, msg.Text)
         }
+        if strings.HasPrefix(line, "s ") {
+	        args := strings.Split(line, " ")
+	        if len(args) != 2 {
+		        fmt.Println("Usage: s <topicID>")
+		        continue
+	        }
+
+	        topicID, err := strconv.ParseInt(args[1], 10, 64)
+	        if err != nil {
+		        fmt.Println("Invalid topic id")
+		        continue
+	        }
+
+	        if _, ok := topics[topicID]; !ok {
+		        fmt.Println("Topic does not exist")
+		        continue
+	        }
+
+	        fmt.Printf("Subscribed to topic %d (%s)\n", topicID, topics[topicID])
+	        go subscribeToTopic(client, topicID, user.Id, lastMessageID)
+
+        }
+
 
 
     }
 }
 
+func subscribeToTopic(client pb.MessageBoardClient, topicID, userID int64, lastMessageID map[int64]int64) {
+    fromMessageID := lastMessageID[topicID]
+
+    req := &pb.SubscribeTopicRequest{
+        TopicId:        []int64{topicID},
+        UserId:         userID,
+        FromMessageId:  fromMessageID,
+        SubscribeToken: "dummy-token",
+    }
+
+    stream, err := client.SubscribeTopic(context.Background(), req)
+    if err != nil {
+        log.Println("SubscribeTopic failed:", err)
+        return
+    }
+
+    for {
+        msgEvent, err := stream.Recv()
+        if err != nil {
+            log.Println("Subscription ended:", err)
+            return
+        }
+        fmt.Printf("\n[SUBSCRIBE] Topic %d: [%d] user=%d: %s (%d likes)\n",
+            msgEvent.Message.TopicId,
+            msgEvent.Message.Id,
+            msgEvent.Message.UserId,
+            msgEvent.Message.Text,
+            msgEvent.Message.Likes,
+        )
+
+        // posodobi lastMessageID za ta topic
+        lastMessageID[topicID] = msgEvent.Message.Id
+    }
+}
+
+
+/*
+package main
+var currentTopicID int64 = 0
+var lastMessageID int64 = 0
+
+
+func startMessagePolling() {
+    go func() {
+        for {
+            if currentTopicID == 0 {
+                time.Sleep(1 * time.Second)
+                continue
+            }
+
+            ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+            resp, err := grpcClient.GetMessages(ctx, &pb.GetMessagesRequest{
+                TopicId:       currentTopicID,
+                FromMessageId: lastMessageID, // pridobi samo nove
+                Limit:         50,
+            })
+            cancel()
+
+            if err != nil {
+                fmt.Println("Polling error:", err)
+                time.Sleep(1 * time.Second)
+                continue
+            }
+
+            for _, m := range resp.Messages {
+                fmt.Printf("\n>> [%d] user=%d: %s (%d likes)\n", m.Id, m.UserId, m.Text, m.Likes)
+                lastMessageID = m.Id
+            }
+
+            time.Sleep(1 * time.Second)
+        }
+    }()
+}
+
+
+
+
+func main() {
+	Execute()
+}*/
 

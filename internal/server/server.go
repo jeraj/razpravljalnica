@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"log"
+	"time"
 	"fmt"
 	pb "github.com/jeraj/razpravljalnica/gen"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -275,6 +276,28 @@ func (s *MessageBoardServer) UpdateMessage(
 	log.Printf("Message %d updated by user %d", msg.Id, msg.UserId)
 
 	return msg, nil
+}
+
+func (s *MessageBoardServer) SubscribeTopic(
+    req *pb.SubscribeTopicRequest,
+    stream pb.MessageBoard_SubscribeTopicServer,
+) error {
+
+    topicID := req.TopicId[0] // zaenkrat samo ena tema
+    lastID := req.FromMessageId
+
+    for {
+        s.mu.Lock()
+        for _, m := range s.messages {
+            if m.TopicId == topicID && m.Id > lastID {
+                stream.Send(&pb.MessageEvent{Message: m})
+                lastID = m.Id
+            }
+        }
+        s.mu.Unlock()
+
+        time.Sleep(1 * time.Second) // enostaven polling
+    }
 }
 
 
