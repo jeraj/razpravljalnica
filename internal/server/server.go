@@ -116,23 +116,21 @@ func (s *MessageBoardServer) GetMessages(
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	//pripravimo, da shranimo sporočila
+	
 	resp := &pb.GetMessagesResponse{}
 
-	//gremo skozi shranjena sporocila na serverju
+	
 	for _, m := range s.messages {
-		//pogleda ali sporocilo pripada temi in ce je spocilo novejse od zadnjega, pogleda katerih sporocil client se nima
+
 		if m.TopicId == req.TopicId && m.Id > req.FromMessageId {
-			//dodamo v response
+			
 			resp.Messages = append(resp.Messages, m)
-			//ce smo presegli limit, prekinemo
+			
 			if req.Limit > 0 && int32(len(resp.Messages)) >= req.Limit {
 				break
 			}
 		}
 	}
-	//vrne seznam sporocil
 	return resp, nil
 }
 
@@ -144,19 +142,16 @@ func (s *MessageBoardServer) PostMessage(
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// preveri, če obstaja uporabnik
 	user, ok := s.users[req.UserId]
 	if !ok {
 		return nil, fmt.Errorf("user with id %d does not exist", req.UserId)
 	}
 
-	// preveri, če obstaja tema
 	topic, ok := s.topics[req.TopicId]
 	if !ok {
 		return nil, fmt.Errorf("topic with id %d does not exist", req.TopicId)
 	}
 
-	// ustvari novo sporočilo
 	s.nextMessageID++
 	msg := &pb.Message{
 		Id:        s.nextMessageID,
@@ -166,8 +161,7 @@ func (s *MessageBoardServer) PostMessage(
 		Likes:     0,
 		CreatedAt: timestamppb.Now(), // trenutni timestamp
 	}
-
-	// shrani sporočilo
+	
 	s.messages[msg.Id] = msg
 
 	log.Printf("New message posted: id=%d topic=%d user=%d text=%s\n", msg.Id, topic.Id, user.Id, msg.Text)
@@ -192,22 +186,20 @@ func (s *MessageBoardServer) LikeMessage(
 		return nil, status.Errorf(codes.InvalidArgument, "message not in this topic")
 	}
 
-	// inicializiraj mapo, če prvič
 	if _, ok := s.likes[msg.Id]; !ok {
 		s.likes[msg.Id] = make(map[int64]bool)
 	}
 
-	// preveri, ali je uporabnik že lajkal
 	if s.likes[msg.Id][req.UserId] {
 		return nil, status.Errorf(codes.AlreadyExists, "message already liked by this user")
 	}
 
-	//zabeleži like
-	s.likes[msg.Id][req.UserId] = true //shranjujejo da vemo kdo je lajkal, da se potem s tem ne
+	s.likes[msg.Id][req.UserId] = true
 	msg.Likes++
 
 	log.Printf("Message %d liked by user %d (likes=%d)",
 		msg.Id, req.UserId, msg.Likes)
+
 
 	return msg, nil
 }
@@ -234,10 +226,8 @@ func (s *MessageBoardServer) DeleteMessage(
 		return nil, status.Errorf(codes.PermissionDenied, "cannot delete message")
 	}
 
-	// izbriši sporočilo
 	delete(s.messages, req.MessageId)
 
-	// izbriši vse like za to sporočilo
 	delete(s.likes, req.MessageId)
 
 	log.Printf("Message %d deleted by user %d", req.MessageId, req.UserId)
@@ -270,7 +260,6 @@ func (s *MessageBoardServer) UpdateMessage(
 		return nil, status.Errorf(codes.InvalidArgument, "message text cannot be empty")
 	}
 
-	// posodobi besedilo
 	msg.Text = req.Text
 
 	log.Printf("Message %d updated by user %d", msg.Id, msg.UserId)
@@ -282,21 +271,88 @@ func (s *MessageBoardServer) SubscribeTopic(
     req *pb.SubscribeTopicRequest,
     stream pb.MessageBoard_SubscribeTopicServer,
 ) error {
-
-    topicID := req.TopicId[0] // zaenkrat samo ena tema
+    topicID := req.TopicId[0]
     lastID := req.FromMessageId
 
-    for {
-        s.mu.Lock()
-        for _, m := range s.messages {
-            if m.TopicId == topicID && m.Id > lastID {
-                stream.Send(&pb.MessageEvent{Message: m})
-                lastID = m.Id
-            }
-        }
-        s.mu.Unlock()
+    lastLikes := make(map[int64]int32)
+    lastTexts := make(map[int64]string)
+    knownMessages := make(map[int64]bool)
 
-        time.Sleep(1 * time.Second) // enostaven polling
+    s.mu.Lock()
+    for _, m := range s.messages {
+        if m.TopicId == topicID {
+            knownMessages[m.Id] = true
+            lastLikes[m.Id] = m.Likes
+            lastTexts[m.Id] = m.Text
+        }
+    }
+    s.mu.Unlock()
+
+    for {
+        select {
+        case <-stream.Context().Done():
+            return nil
+        default:
+            s.mu.Lock()
+            currentIDs := make(map[int64]bool)
+
+
+            for _, m := range s.messages {
+                if m.TopicId != topicID {
+                    continue
+                }
+                currentIDs[m.Id] = true
+
+                //message
+                if m.Id > lastID && !knownMessages[m.Id] {
+                    stream.Send(&pb.MessageEvent{
+                        Op:      pb.OpType_OP_POST,
+                        Message: m,
+                        EventAt: timestamppb.Now(),
+                    })
+                    lastID = m.Id
+                    knownMessages[m.Id] = true
+                    lastLikes[m.Id] = m.Likes
+                    lastTexts[m.Id] = m.Text
+
+                //za update
+                } else if m.Text != lastTexts[m.Id] {
+                    stream.Send(&pb.MessageEvent{
+                        Op:      pb.OpType_OP_UPDATE,
+                        Message: m,
+                        EventAt: timestamppb.Now(),
+                    })
+                    lastTexts[m.Id] = m.Text
+
+                //za like
+                } else if m.Likes != lastLikes[m.Id] {
+                    stream.Send(&pb.MessageEvent{
+                        Op:      pb.OpType_OP_LIKE,
+                        Message: m,
+                        EventAt: timestamppb.Now(),
+                    })
+                    lastLikes[m.Id] = m.Likes
+                }
+            }
+
+            //za delete
+            
+            for id := range knownMessages {
+                if !currentIDs[id] {
+                    stream.Send(&pb.MessageEvent{
+                        Op: pb.OpType_OP_DELETE,
+                        Message: &pb.Message{Id: id, TopicId: topicID},
+                        EventAt: timestamppb.Now(),
+                    })
+                    delete(knownMessages, id)
+                    delete(lastLikes, id)
+                    delete(lastTexts, id)
+                }
+            }
+            s.mu.Unlock()
+
+            time.Sleep(1 * time.Second)
+        }
     }
 }
 
